@@ -1,0 +1,23 @@
+{
+  "project": "info.title+ _ +info.version(pom afterdID+groupId)",
+  "paths": [
+    {
+      "requestMapping": "/xxx/xxx",
+      "requestMethod": "get or post or put...",
+      "parameters": [
+        {
+          "in": "path or body or...",
+          "name": "param1 param2 or body....",
+          "require": "true or false",
+          "enablecheck": "default false",
+          "regular": null,
+          "schema": {
+            "type": "array or null",
+            "$ref": "Definitions -> find BeanDetail ",
+            "format": null
+          }
+        }
+      ]
+    }
+  ]
+}
