@@ -17,12 +17,11 @@ import scala.concurrent.java8.FuturesConvertersImpl._
 import scala.concurrent.{ExecutionContext, ExecutionContextExecutor, ExecutionContextExecutorService, Future, Promise}
 import java.util.concurrent.{CompletionStage, Executor, ExecutorService}
 import java.util.function.Consumer
-
-
 import java.util.concurrent.CompletionStage
+
+import junit.framework.Test
+
 import scala.concurrent.Future
-
-
 import scala.compat.java8.FutureConverters
 
 
@@ -140,7 +139,28 @@ class ApiValidateController {
       }
     }
 
-    FutureConverters.toJava(swaggerQuery)
+    //FutureConverters.toJava(swaggerQuery)
+    FutureConverters.toJava(swaggerQuery.flatMap { all =>
+      Future(allToJson(all))
+    })
+
   }
+
+  def allToJson(all: ALL) = {
+    all.beans.map { bean =>
+      Map(bean.bean.beanName -> beanToJson(bean, all.beans))
+    }
+  }
+
+  def beanToJson(bean: BeanWithAttrs, beans: List[BeanWithAttrs]): Map[String, Option[String]] = {
+    bean.attrs.map {
+      case attr if attr.$ref.isEmpty =>
+        Map(attr.attributeName -> attr.regular)
+      case attr if attr.$ref.isDefined =>
+        println(JsonUtil.objectMapper.writeValueAsString(attr))
+        beanToJson(beans.filter(_.bean.beanName .equalsIgnoreCase( attr.$ref.getOrElse("肯定不一樣"))).head, beans)
+    }.foldLeft(Map[String, Option[String]]()) { (A, B) => A ++ B }
+  }
+
 
 }
