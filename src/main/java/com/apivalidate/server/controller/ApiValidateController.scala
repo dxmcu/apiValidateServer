@@ -23,6 +23,7 @@ import junit.framework.Test
 
 import scala.concurrent.Future
 import scala.compat.java8.FutureConverters
+import scala.util.{Failure, Success}
 
 
 @RestController
@@ -31,7 +32,7 @@ class ApiValidateController {
   implicit val ec = ExecutionContext.global
 
   @PostMapping(value = Array("/swagger/json"))
-  def saveSwaggerJson(@RequestBody api: SwaggerAPI): Unit = {
+  def saveSwaggerJson(@RequestBody api: SwaggerAPI): CompletionStage[String] = {
     println(api)
 
     val origin: String = JsonUtil.objectMapper.writeValueAsString(api)
@@ -58,12 +59,12 @@ class ApiValidateController {
         case None => None
       }
 
-      val pathRow = PathRow(api.projectName, requestMapping, requestMethod, defintion, Utils.currentTimestamp, Utils.currentTimestamp)
+      val pathRow = PathRow(api.projectName, requestMapping, requestMethod, defintion, api.info.version, Utils.currentTimestamp, Utils.currentTimestamp)
 
       val parameters = methodDetail.parameters match {
         case Some(params) =>
           params.filter(fp => fp.in.equals("path") || fp.in.equals("query")).map { m =>
-            ParameterRow(api.projectName, m.in, requestMethod, requestMapping, m.name, m.`type`, m.format, None, false, Utils.currentTimestamp, Utils.currentTimestamp)
+            ParameterRow(api.projectName, m.in, requestMethod, requestMapping, m.name, m.`type`, m.format, None, false, api.info.version, Utils.currentTimestamp, Utils.currentTimestamp)
           }
         case None => null
       }
@@ -80,41 +81,52 @@ class ApiValidateController {
     val paramRows = pathAndParam.values.filter(null != _).flatten
     val beanRows = api.definitions.map {
       case (name: BeanName, detali: BeanDetail) =>
-        BeanRow(name, api.projectName, detali.`type`, Utils.currentTimestamp, Utils.currentTimestamp)
+        BeanRow(name, api.projectName, detali.`type`, api.info.version, Utils.currentTimestamp, Utils.currentTimestamp)
     }
     val attributeRows = api.definitions.flatMap {
       case (beanName: BeanName, beanDetali: BeanDetail) =>
         beanDetali.properties.map {
           case (attributeName: String, attributeDetail: AttributeDetail) =>
             AttributeRow(api.projectName, beanName, attributeName, attributeDetail.`type`, attributeDetail.format,
-              attributeDetail.regular, false, SwaggerUtil.refToBeanName(attributeDetail.$ref), Utils.currentTimestamp, Utils.currentTimestamp)
+              attributeDetail.regular, false, SwaggerUtil.refToBeanName(attributeDetail.$ref), api.info.version, Utils.currentTimestamp, Utils.currentTimestamp)
         }
     }
 
     val query = for {
+      idxChk <- SwaggerApi.filter(f => f.projectName === swaggerApiRow.projectName &&
+        f.version === swaggerApiRow.version).result.headOption
+      chk = idxChk match {
+        case Some(v) =>
+          DBIO.failed(new RuntimeException("项目api版本已经存在"))
+        case None =>
+          DBIO.successful()
+      }
       sa <- SwaggerApi += swaggerApiRow
       path <- Path ++= pathRows
       param <- Parameter ++= paramRows
       bean <- Bean ++= beanRows
       attr <- Attribute ++= attributeRows
-    } yield 0
+    } yield sa
 
-    Await.result(db.run(query), Duration.Inf)
-
-    println("saving---------------")
-
+    FutureConverters.toJava[String](db.run(query.transactionally.asTry).flatMap {
+      case Success(_) =>
+        Future("success")
+      case Failure(ex) =>
+        println(ex.getMessage)
+        Future("fail")
+    })
   }
 
   @Async
-  @GetMapping(value = Array("/swagger/json/{projectName}"))
-  def getSwaggerJson(@PathVariable("projectName") projectName: String) = {
+  @GetMapping(value = Array("/swagger/json/{projectName}/{version}"))
+  def getSwaggerJson(@PathVariable("projectName") projectName: String, @PathVariable("version") version: String) = {
 
     var swaggerRow: Option[SwaggerApiRow] = None
     var pathRows: List[PathRow] = List.empty
     var pathWithParams: List[PathWithParams] = List.empty
     var beanWithAttrs: List[BeanWithAttrs] = List.empty
 
-    val swaggerQuery = db.run(SwaggerApi.filter(_.projectName === projectName).result.headOption)
+    val swaggerQuery = db.run(SwaggerApi.filter(f => f.projectName === projectName && f.version === version).result.headOption)
       .flatMap { swagger =>
         swaggerRow = swagger
         val query = Path.filter(_.projectName === projectName)
@@ -127,8 +139,9 @@ class ApiValidateController {
         PathWithParams(path, pp.map(_._2).toList)
       }.toList
 
-      val query = Bean.filter(_.projectName === projectName)
-        .join(Attribute).on((bean, attr) => bean.projectName === attr.projectName && bean.beanName === attr.beanName)
+      val query = Bean.filter(f => f.projectName === projectName && f.version === version)
+        .join(Attribute).on((bean, attr) => bean.projectName === attr.projectName &&
+        bean.beanName === attr.beanName && bean.version === attr.version)
       db.run(query.result)
     }.flatMap { fm =>
       beanWithAttrs = fm.groupBy(_._1).map { case (bean, ba) =>
@@ -138,10 +151,11 @@ class ApiValidateController {
         com.apivalidate.server.entity.dto.ALL(swaggerRow.orNull, pathWithParams, beanWithAttrs)
       }
     }
-
-    //FutureConverters.toJava(swaggerQuery)
     FutureConverters.toJava(swaggerQuery.flatMap { all =>
-      Future(allToJson(all))
+      Future {
+        all.bodyRegulars = allToJson(all)
+        all
+      }
     })
 
   }
@@ -149,17 +163,23 @@ class ApiValidateController {
   def allToJson(all: ALL) = {
     all.beans.map { bean =>
       Map(bean.bean.beanName -> beanToJson(bean, all.beans))
-    }
+    }.foldLeft(Map[String, Any]()) { (A, B) => A ++ B }
   }
 
-  def beanToJson(bean: BeanWithAttrs, beans: List[BeanWithAttrs]): Map[String, Option[String]] = {
+  def beanToJson(bean: BeanWithAttrs, beans: List[BeanWithAttrs]): Map[String, Any] = {
     bean.attrs.map {
       case attr if attr.$ref.isEmpty =>
         Map(attr.attributeName -> attr.regular)
       case attr if attr.$ref.isDefined =>
-        println(JsonUtil.objectMapper.writeValueAsString(attr))
-        beanToJson(beans.filter(_.bean.beanName .equalsIgnoreCase( attr.$ref.getOrElse("肯定不一樣"))).head, beans)
-    }.foldLeft(Map[String, Option[String]]()) { (A, B) => A ++ B }
+        var mmap = Map[String, Any]()
+        try {
+          mmap = Map(attr.attributeName -> beanToJson(beans.filter(_.bean.beanName.equalsIgnoreCase(attr.$ref.getOrElse("肯定不一樣"))).head, beans))
+        } catch {
+          case ex: Exception =>
+            println(JsonUtil.objectMapper.writeValueAsString(attr))
+        }
+        mmap
+    }.foldLeft(Map[String, Any]()) { (A, B) => A ++ B }
   }
 
 

@@ -9,14 +9,14 @@ trait AttributeTable {
   import slick.model.ForeignKeyAction
   // NOTE: GetResult mappers for plain SQL are only generated for tables where Slick knows how to map the types of all columns.
   import slick.jdbc.{GetResult => GR}
-  case class AttributeRow(projectName: String, beanName: String, attributeName: String, attributeType: Option[String] = None, format: Option[String] = None, regular: Option[String] = None, enable: Boolean = false, $ref: Option[String] = None, createAt: java.sql.Timestamp, updateAt: java.sql.Timestamp)
+  case class AttributeRow(projectName: String, beanName: String, attributeName: String, attributeType: Option[String] = None, format: Option[String] = None, regular: Option[String] = None, enable: Boolean = false, $ref: Option[String] = None, version: String, createAt: java.sql.Timestamp, updateAt: java.sql.Timestamp)
   implicit def GetResultAttributeRow(implicit e0: GR[String], e1: GR[Option[String]], e2: GR[Boolean], e3: GR[java.sql.Timestamp]): GR[AttributeRow] = GR{
     prs => import prs._
-    AttributeRow.tupled((<<[String], <<[String], <<[String], <<?[String], <<?[String], <<?[String], <<[Boolean], <<?[String], <<[java.sql.Timestamp], <<[java.sql.Timestamp]))
+    AttributeRow.tupled((<<[String], <<[String], <<[String], <<?[String], <<?[String], <<?[String], <<[Boolean], <<?[String], <<[String], <<[java.sql.Timestamp], <<[java.sql.Timestamp]))
   }
   class Attribute(_tableTag: Tag) extends profile.api.Table[AttributeRow](_tableTag, Some("api_validate"), "attribute") {
-    def * = (projectName, beanName, attributeName, attributeType, format, regular, enable, $ref, createAt, updateAt) <> (AttributeRow.tupled, AttributeRow.unapply)
-    def ? = ((Rep.Some(projectName), Rep.Some(beanName), Rep.Some(attributeName), attributeType, format, regular, Rep.Some(enable), $ref, Rep.Some(createAt), Rep.Some(updateAt))).shaped.<>({r=>import r._; _1.map(_=> AttributeRow.tupled((_1.get, _2.get, _3.get, _4, _5, _6, _7.get, _8, _9.get, _10.get)))}, (_:Any) =>  throw new Exception("Inserting into ? projection not supported."))
+    def * = (projectName, beanName, attributeName, attributeType, format, regular, enable, $ref, version, createAt, updateAt) <> (AttributeRow.tupled, AttributeRow.unapply)
+    def ? = ((Rep.Some(projectName), Rep.Some(beanName), Rep.Some(attributeName), attributeType, format, regular, Rep.Some(enable), $ref, Rep.Some(version), Rep.Some(createAt), Rep.Some(updateAt))).shaped.<>({r=>import r._; _1.map(_=> AttributeRow.tupled((_1.get, _2.get, _3.get, _4, _5, _6, _7.get, _8, _9.get, _10.get, _11.get)))}, (_:Any) =>  throw new Exception("Inserting into ? projection not supported."))
 
     val projectName: Rep[String] = column[String]("project_name", O.Length(255,varying=true))
     val beanName: Rep[String] = column[String]("bean_name", O.Length(255,varying=true))
@@ -26,6 +26,7 @@ trait AttributeTable {
     val regular: Rep[Option[String]] = column[Option[String]]("regular", O.Length(255,varying=true), O.Default(None))
     val enable: Rep[Boolean] = column[Boolean]("enable", O.Default(false))
     val $ref: Rep[Option[String]] = column[Option[String]]("$ref", O.Length(255,varying=true), O.Default(None))
+    val version: Rep[String] = column[String]("version", O.Length(255,varying=true))
     val createAt: Rep[java.sql.Timestamp] = column[java.sql.Timestamp]("create_at")
     val updateAt: Rep[java.sql.Timestamp] = column[java.sql.Timestamp]("update_at")
   }
@@ -45,6 +46,7 @@ trait AttributeTable {
                 case "regular"=>f.regular === B._2.asInstanceOf[String]
                 case "enable"=>f.enable === B._2.asInstanceOf[Boolean]
                 case "$ref"=>f.$ref === B._2.asInstanceOf[String]
+                case "version"=>f.version === B._2.asInstanceOf[String]
                 case "createAt"=>f.createAt === B._2.asInstanceOf[java.sql.Timestamp]
                 case "updateAt"=>f.updateAt === B._2.asInstanceOf[java.sql.Timestamp]
                 
@@ -105,6 +107,12 @@ trait AttributeTable {
             sort match {
               case "asc" => q.sortBy(_.$ref.asc)
               case "desc" => q.sortBy(_.$ref.desc)
+            }
+             
+          case "version" =>
+            sort match {
+              case "asc" => q.sortBy(_.version.asc)
+              case "desc" => q.sortBy(_.version.desc)
             }
              
           case "createAt" =>

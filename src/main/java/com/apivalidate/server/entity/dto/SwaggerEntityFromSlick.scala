@@ -17,4 +17,4 @@ case class PathWithParams(path: PathRow, params: List[ParameterRow])
 
 case class BeanWithAttrs(bean: BeanRow, attrs: List[AttributeRow])
 
-case class ALL(swaggerApi: SwaggerApiRow, paths: List[PathWithParams], beans: List[BeanWithAttrs])
+case class ALL(swaggerApi: SwaggerApiRow, paths: List[PathWithParams], beans: List[BeanWithAttrs], var bodyRegulars: Map[String, Any] = Map.empty)
